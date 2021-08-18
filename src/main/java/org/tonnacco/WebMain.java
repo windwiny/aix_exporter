@@ -44,7 +44,7 @@ public class WebMain {
             log.info("hostname not set ");
             hostname = InetAddress.getLocalHost().getHostName();
             if (hostname.equals("loopback")) {
-                hostname = CmdUtils.RunAndGet("hostname").get(0).trim();
+                hostname = CmdUtils.RunAndGet("hostname").trim();
             }
         }
         log.info("hostname: " + hostname);

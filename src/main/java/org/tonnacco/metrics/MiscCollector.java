@@ -42,33 +42,40 @@ public class MiscCollector extends Collector {
     public List<MetricFamilySamples> collect() {
         aix_miscmetrics_used_time.clear();
 
-        long b1, e1;
         long begin = System.nanoTime();
-
-        b1 = System.nanoTime();
-        getProcessNumber();
-        e1 = System.nanoTime();
-        aix_miscmetrics_used_time.labels(hostname, "misc_1").set((e1 - b1) / 1000000f);
-
-        b1 = System.nanoTime();
-        getErrptWc();
-        e1 = System.nanoTime();
-        aix_miscmetrics_used_time.labels(hostname, "misc_2").set((e1 - b1) / 1000000f);
-
-        b1 = System.nanoTime();
-        getFileSystemFree();
-        e1 = System.nanoTime();
-        aix_miscmetrics_used_time.labels(hostname, "misc_3").set((e1 - b1) / 1000000f);
-
-        b1 = System.nanoTime();
-        getAlertlogfileSize();
-        e1 = System.nanoTime();
-        aix_miscmetrics_used_time.labels(hostname, "misc_4").set((e1 - b1) / 1000000f);
-
+        runAllCmds();
         long end = System.nanoTime();
         aix_miscmetrics_used_time.labels(hostname, "misc_total").set((end - begin) / 1000000f);
 
         return _list;
+    }
+
+    private static void runAllCmds() {
+        final String SPSTR = "aaaaaaazzzzzzzeeeeeeuuuaasdfhluywernzxcvouywerqadfmnbmzxcbmzxvgz"; // random string
+
+        final String[] cmdarray = new String[]{"sh", "-c", "" +
+                "SPSTR=" + SPSTR + ";" +
+                "echo $SPSTR ; ps -ef | wc ;" +
+                "echo $SPSTR ; errpt -T PERM -d H | wc ;" +
+                "echo $SPSTR ; errpt -T PERM -d S | wc ;" +
+                "echo $SPSTR ; /usr/sysv/bin/df -lg ;" +
+                "echo $SPSTR ; ls" + basedir + "/rdbms/*/*/trace/alert_*.log ;" +
+                ""};
+        final int cmd_num = 6;
+
+        String strs = CmdUtils.RunAndGet(cmdarray);
+        String[] ress = strs.split(SPSTR);
+
+        if (ress.length != cmd_num) {   // check
+            log.error("run shell failed");
+            System.exit(9);
+        }
+
+        int i = 1;
+        getProcessNumber(ress[i++]);        // 2
+        getErrptWc(ress[i++], ress[i++]);
+        getFileSystemFree(ress[i++]);
+        getAlertlogfileSize(ress[i++]);
     }
 
     private static final Gauge pswc_usage = Gauge.build()
@@ -79,19 +86,11 @@ public class MiscCollector extends Collector {
 
     private static int ierr_pswc;
 
-    private static void getProcessNumber() {
+    private static void getProcessNumber(String strs) {
         pswc_usage.clear();
 
-        final String[] cmdarray = new String[]{"sh", "-c", "ps -ef | wc"};
-        long begin = System.nanoTime();
-        List<String> strs = CmdUtils.RunAndGet(cmdarray);
-        long end = System.nanoTime();
-        aix_miscmetrics_used_time.labels(hostname, "pswc").set((end - begin) / 1000000f);
-
-        if (strs.size() < 1) return;
-
         int pswc;
-        String[] split = strs.get(0).trim().split("\\s+");
+        String[] split = strs.trim().split("\\s+");
         try {
             pswc = Integer.parseInt(split[0]);
             pswc_usage.labels(hostname).set(pswc);
@@ -111,26 +110,15 @@ public class MiscCollector extends Collector {
 
     private static int ierr_errpt;
 
-    private static void getErrptWc() {
+    private static void getErrptWc(String str1, String str2) {
         errptusage.clear();
 
-        List<String> ress1, ress2;
         int eno;
         try {
-            long begin = System.nanoTime();
-            ress1 = CmdUtils.RunAndGet(new String[]{"sh", "-c", "errpt -T PERM -d H | wc "});
-            ress2 = CmdUtils.RunAndGet(new String[]{"sh", "-c", "errpt -T PERM -d S | wc "});
-            long end = System.nanoTime();
-            aix_miscmetrics_used_time.labels(hostname, "errpt").set((end - begin) / 1000000f);
-
-            if (ress1.size() > 0) {
-                eno = Integer.parseInt(ress1.get(0).trim().split(" ")[0]);
-                errptusage.labels(hostname, "PERM", "HARD").set(eno);
-            }
-            if (ress2.size() > 0) {
-                eno = Integer.parseInt(ress2.get(0).trim().split(" ")[0]);
-                errptusage.labels(hostname, "PERM", "SOFT").set(eno);
-            }
+            eno = Integer.parseInt(str1.trim().split(" ")[0]);
+            errptusage.labels(hostname, "PERM", "HARD").set(eno);
+            eno = Integer.parseInt(str2.trim().split(" ")[0]);
+            errptusage.labels(hostname, "PERM", "SOFT").set(eno);
         } catch (NumberFormatException e) {
             ierr_errpt++;
             if (ierr_errpt < 10)
@@ -147,14 +135,10 @@ public class MiscCollector extends Collector {
 
     private static int ierr_jfs2;
 
-    private static void getFileSystemFree() {
+    private static void getFileSystemFree(String strs) {
         jfs2_usage.clear();
 
-        final String[] cmdarray = "/usr/sysv/bin/df -lg".split("\\s+");
-        long begin = System.nanoTime();
-        List<String> ress = CmdUtils.RunAndGet(cmdarray);
-        long end = System.nanoTime();
-        aix_miscmetrics_used_time.labels(hostname, "df").set((end - begin) / 1000000f);
+        String[] ress = strs.split("\n");
 
         Pattern reg_block_size = Pattern.compile("(\\d+) block size");
         Pattern reg_total_avail_blocks_total_fs = Pattern.compile("(\\d+) total blocks.*?(\\d+) available.*?(\\d+) total files");
@@ -166,8 +150,8 @@ public class MiscCollector extends Collector {
         String str;
         String[] split;
         Matcher m;
-        for (int i = 0; i < ress.size(); i++) {
-            str = ress.get(i);
+        for (int i = 0; i < ress.length; i++) {
+            str = ress[i];
 
             if (str.length() > 1 && str.charAt(0) == '/') {
                 split = str.split("\\(");
@@ -180,7 +164,7 @@ public class MiscCollector extends Collector {
 //                else break;
 
                 i++;
-                str = ress.get(i);
+                str = ress[i];
                 m = procLine(str, reg_total_avail_blocks_total_fs, "err proc total avail");
                 float total_blocks;
                 float available_blocks;
@@ -195,7 +179,7 @@ public class MiscCollector extends Collector {
                 }
 
                 i++;
-                str = ress.get(i);
+                str = ress[i];
                 m = procLine(str, reg_free_fs, "err proc free fs");
                 float free_files;
                 if (m != null)
@@ -206,7 +190,7 @@ public class MiscCollector extends Collector {
                 }
 
                 i++;
-                str = ress.get(i);
+                str = ress[i];
                 m = procLine(str, reg_fs_type, "err proc fs type");
                 String filetype;
                 if (m != null)
@@ -248,20 +232,14 @@ public class MiscCollector extends Collector {
 
     private static Map<String, Long> file2size = new HashMap<String, Long>();
 
-    private static void getAlertlogfileSize() {
+    private static void getAlertlogfileSize(String strs) {
         alertlogusage.clear();
 
-        if (basedir == null || basedir.equals(""))
-            basedir = "/u01/oracle/diag";
-        final String mat = "rdbms/*/*/trace/alert_*.log";
-
-        long begin = System.nanoTime();
-        List<String> files = MyGlobScanner.Scan(basedir, mat);
-        long end = System.nanoTime();
-        aix_miscmetrics_used_time.labels(hostname, "alert_log").set((end - begin) / 1000000f);
-
+        String[] files = strs.split("\n");
         for (String full_filename : files) {
-            full_filename = basedir + File.separator + full_filename;
+            if (full_filename.length() > 2 && full_filename.charAt(0) == '\'') {
+                full_filename = full_filename.substring(1, full_filename.length() - 2);
+            }
             File fo1 = new File(full_filename);
 
             long lastTime = fo1.lastModified();

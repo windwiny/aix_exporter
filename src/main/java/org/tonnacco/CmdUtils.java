@@ -213,19 +213,20 @@ public class CmdUtils {
     private CmdUtils() {
     }
 
-    public static List<String> RunAndGet(String cmd) {
+    public static String RunAndGet(String cmd) {
         return RunAndGet(new String[]{cmd});
     }
 
-    public static List<String> RunAndGet(String[] cmdarray) {
-        LinkedList<String> sb = new LinkedList<String>();
+    public static String RunAndGet(String[] cmdarray) {
+        StringBuilder sb = new StringBuilder();
 
         try {
             Process exec = Runtime.getRuntime().exec(cmdarray);
             BufferedReader bf = new BufferedReader(new InputStreamReader(exec.getInputStream()));
             String s;
             while ((s = bf.readLine()) != null) {
-                sb.add(s);
+                sb.append(s);
+                sb.append('\n');
             }
             exec.waitFor();
         } catch (IOException e) {
@@ -239,7 +240,7 @@ public class CmdUtils {
         } catch (InterruptedException e) {
             log.warn(e);
         }
-        return sb;
+        return sb.toString();
     }
 
     public static void listProcess() {
